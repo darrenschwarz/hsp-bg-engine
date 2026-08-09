@@ -1,0 +1,16 @@
+# Sidecar image. Build from the wildbg checkout that has `main` code and the
+# STRONG nets from the `nets` branch copied into neural-nets/.
+FROM rust:1.95-slim AS build
+WORKDIR /src
+COPY . .
+RUN cargo build --release -p bg-engine
+
+FROM debian:bookworm-slim
+WORKDIR /app
+COPY --from=build /src/target/release/bg-engine /app/bg-engine
+COPY --from=build /src/neural-nets /app/neural-nets
+COPY --from=build /src/LICENSE-APACHE /src/LICENSE-MIT /app/
+ENV PORT=8090
+EXPOSE 8090
+HEALTHCHECK --interval=10s --timeout=2s CMD ["/app/bg-engine", "--health"] 
+CMD ["/app/bg-engine"]

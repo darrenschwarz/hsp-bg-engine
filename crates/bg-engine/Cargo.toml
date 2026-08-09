@@ -1,0 +1,21 @@
+[package]
+name = "bg-engine"
+version = "0.1.0"
+edition = "2024"
+license = "Apache-2.0 OR MIT"
+
+# Reference sidecar for the game platform.
+#
+# Wraps the wildbg workspace behind a BATCH-FIRST API of our own design.
+# The stock wildbg server answers "what is the best move" one position at a
+# time. We need ranked candidates with equity losses, in bulk, because the
+# same primitive serves live play (1 position) and post-match analysis
+# (~2000 positions).
+
+[dependencies]
+engine = { path = "../engine" }
+logic = { path = "../logic" }
+axum = "0.8.4"
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
+tokio = { version = "1", features = ["full"] }

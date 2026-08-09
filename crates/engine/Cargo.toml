@@ -1,0 +1,12 @@
+[package]
+name = "engine"
+
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+# external
+fastrand = { workspace = true }
+tract-onnx = "=0.23.4"
+base64 = "0.22.1"
