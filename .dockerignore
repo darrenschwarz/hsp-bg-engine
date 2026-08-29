@@ -1,0 +1,7 @@
+# Keep the build context to the source: no build output, no scratch, no git
+# history (the commit hash arrives as a build argument, see Dockerfile.bg-engine).
+target/
+_to_delete/
+_extracted-source.tar.gz
+.git/
+training-data/

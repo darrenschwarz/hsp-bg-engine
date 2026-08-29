@@ -1,0 +1,117 @@
+{
+  "results": [
+    {
+      "moves": [
+        {
+          "details": [
+            {
+              "from": 8,
+              "to": 5
+            },
+            {
+              "from": 6,
+              "to": 5
+            }
+          ],
+          "resultingPips": [
+            0,
+            -2,
+            0,
+            0,
+            0,
+            2,
+            4,
+            0,
+            2,
+            0,
+            0,
+            0,
+            -5,
+            5,
+            0,
+            0,
+            0,
+            -3,
+            0,
+            -5,
+            0,
+            0,
+            0,
+            0,
+            2,
+            0
+          ],
+          "probabilities": {
+            "win": 0.5625,
+            "winGammon": 0.125,
+            "winBackgammon": 0.0625,
+            "loseGammon": 0.125,
+            "loseBackgammon": 0.0625
+          },
+          "equity": 0.25,
+          "equityLoss": 0.0
+        },
+        {
+          "details": [
+            {
+              "from": 24,
+              "to": 21
+            },
+            {
+              "from": 24,
+              "to": 23
+            }
+          ],
+          "resultingPips": [
+            0,
+            -2,
+            0,
+            0,
+            0,
+            0,
+            5,
+            0,
+            3,
+            0,
+            0,
+            0,
+            -5,
+            5,
+            0,
+            0,
+            0,
+            -3,
+            0,
+            -5,
+            0,
+            1,
+            0,
+            1,
+            0,
+            0
+          ],
+          "probabilities": {
+            "win": 0.5,
+            "winGammon": 0.125,
+            "winBackgammon": 0.0625,
+            "loseGammon": 0.1875,
+            "loseBackgammon": 0.0625
+          },
+          "equity": 0.125,
+          "equityLoss": 0.125
+        }
+      ],
+      "error": null
+    }
+  ],
+  "apiVersion": 1,
+  "capabilities": [
+    "evaluate.v1",
+    "cube.money.v1",
+    "plies.1",
+    "plies.2"
+  ],
+  "engineId": "wildbg@f1d2d2f924e986ac86fdf7b36c94bcdf32beec15+contact@cdb4763d4a1ba2967bcafe97799e6a7a89d3fb43f7f584dabd2a7602779e06f0+race@f16c0265c8d1097a6fcf7ec97b5e40c42857612c9d7019622476c1207c1c293b",
+  "evalMs": 0.5,
+  "positionsEvaluated": 2
+}

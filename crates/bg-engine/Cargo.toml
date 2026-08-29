@@ -3,14 +3,27 @@ name = "bg-engine"
 version = "0.1.0"
 edition = "2024"
 license = "Apache-2.0 OR MIT"
+build = "build.rs"
 
 # Reference sidecar for the game platform.
 #
-# Wraps the wildbg workspace behind a BATCH-FIRST API of our own design.
-# The stock wildbg server answers "what is the best move" one position at a
-# time. We need ranked candidates with equity losses, in bulk, because the
-# same primitive serves live play (1 position) and post-match analysis
-# (~2000 positions).
+# Wraps the wildbg workspace behind a small API of our own design for LIVE
+# play. The stock wildbg server answers "what is the best move" one position
+# at a time; we need ranked candidates with equity losses, so the difficulty
+# sampler can choose among them. Batches exist so one table's turn (a move
+# and a cube decision, say) is one round trip -- they are capped at 8. This
+# is not a bulk analysis interface: post-match analysis of a whole game is a
+# different workload and needs its own deployment (GP-477).
+#
+# Identity (GP-476): build.rs bakes the source commit and the SHA-256 of the
+# two embedded nets into the binary. The build FAILS without a full commit
+# hash -- see build.rs.
+#
+# Access and capacity (GP-477): the evaluation routes require the bearer
+# token in BG_ENGINE_AUTH_TOKEN (no token, no start; /health stays public),
+# read at most 16 KiB, and run inference on a blocking pool bounded by
+# BG_ENGINE_MAX_CONCURRENT_EVALS (default 1, at most 4). See src/auth.rs and
+# src/capacity.rs.
 
 [dependencies]
 engine = { path = "../engine" }
@@ -18,4 +31,14 @@ logic = { path = "../logic" }
 axum = "0.8.4"
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
+# The bearer token is kept and compared as a SHA-256 digest (auth.rs).
+sha2 = "0.10"
 tokio = { version = "1", features = ["full"] }
+
+[build-dependencies]
+sha2 = "0.10"
+
+[dev-dependencies]
+sha2 = "0.10"
+# `ServiceExt::oneshot`, to drive the real Router in tests.
+tower = { version = "0.5", features = ["util"] }

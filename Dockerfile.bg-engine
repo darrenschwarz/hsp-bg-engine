@@ -1,16 +1,41 @@
-# Sidecar image. Build from the wildbg checkout that has `main` code and the
-# STRONG nets from the `nets` branch copied into neural-nets/.
+# Sidecar image: the bg-engine binary with the strong nets compiled in.
+#
+# The binary's identity (GP-476) is baked in at build time from the full
+# commit hash of the source being built. Render provides RENDER_GIT_COMMIT to
+# Docker builds; anyone else passes it explicitly:
+#
+#   docker build -f Dockerfile.bg-engine \
+#     --build-arg BG_ENGINE_SOURCE_REVISION=$(git rev-parse HEAD) -t bg-engine .
+#
+# The build FAILS without a valid hash. That is deliberate: there is no
+# "main" or "unpinned" label to fall back to, so a running sidecar can always
+# be traced to exactly one commit and one pair of nets.
 FROM rust:1.95-slim AS build
 WORKDIR /src
 COPY . .
+ARG RENDER_GIT_COMMIT
+ARG BG_ENGINE_SOURCE_REVISION=${RENDER_GIT_COMMIT}
+ENV BG_ENGINE_SOURCE_REVISION=${BG_ENGINE_SOURCE_REVISION}
 RUN cargo build --release -p bg-engine
 
 FROM debian:bookworm-slim
 WORKDIR /app
 COPY --from=build /src/target/release/bg-engine /app/bg-engine
-COPY --from=build /src/neural-nets /app/neural-nets
 COPY --from=build /src/LICENSE-APACHE /src/LICENSE-MIT /app/
 ENV PORT=8090
 EXPOSE 8090
-HEALTHCHECK --interval=10s --timeout=2s CMD ["/app/bg-engine", "--health"] 
+# Runtime configuration (GP-477) -- supplied by the platform at run time,
+# never baked into the image:
+#   BG_ENGINE_AUTH_TOKEN            required; the container exits at once
+#                                   without it (>= 16 visible-ASCII chars,
+#                                   0x21..0x7E: no spaces, no non-ASCII)
+#   BG_ENGINE_MAX_CONCURRENT_EVALS  optional; 1 (default) .. 4 concurrent
+#                                   neural evaluations
+# The API is sized for live single-position traffic (batch <= 8, body
+# <= 16 KiB, 429 when saturated), not bulk analysis. /health is public;
+# the health check below needs no token.
+# A real HTTP probe of GET /health on the running server (bg-engine --health
+# is an HTTP client, exit 0 on 200 + ok:true). The start period covers net
+# loading and the 2-ply evaluator's construction.
+HEALTHCHECK --interval=10s --timeout=3s --start-period=30s --retries=3 CMD ["/app/bg-engine", "--health"]
 CMD ["/app/bg-engine"]
