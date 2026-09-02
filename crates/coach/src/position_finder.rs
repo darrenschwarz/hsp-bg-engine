@@ -100,8 +100,7 @@ impl<T: MoveSelector, U: DiceGen> ConcreteFinder<T, U> {
 mod tests {
     use crate::position_finder::diverse_with_evaluator;
     use engine::composite::CompositeEvaluator;
-    use engine::pos;
-    use engine::position::OngoingPhase;
+    use engine::position::{OngoingPhase, STARTING};
 
     #[test]
     // We could look at each position from two sides. Make sure it's the correct one.
@@ -114,9 +113,20 @@ mod tests {
             .first()
             .unwrap()
             .to_owned();
-        // Then
-        // x is still in the starting position, o has some moved pieces.
-        let expected = pos!(x 24:2, 13:5, 8:3, 6:5; o 19:5, 17:4, 12:4, 1:2);
-        assert_eq!(found_position, expected);
+        // Then x is still in the starting position, while o has moved. The
+        // exact o move is selected by the neural net and is not part of this
+        // direction test.
+        let found: [i8; 26] = found_position.into();
+        let starting: [i8; 26] = STARTING.into();
+        assert_eq!(
+            found.map(|pip| pip.max(0)),
+            starting.map(|pip| pip.max(0)),
+            "x must be the player who has not moved yet"
+        );
+        assert_ne!(
+            found.map(|pip| pip.min(0)),
+            starting.map(|pip| pip.min(0)),
+            "o must be the player whose move produced the position"
+        );
     }
 }
