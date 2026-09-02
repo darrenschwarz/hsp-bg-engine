@@ -662,17 +662,15 @@ fn score_config(x_away: u32, o_away: u32) -> Result<ScoreConfig, String> {
     ScoreConfig::try_from((x_away, o_away)).map_err(|e| e.to_string())
 }
 
-fn rank_score_config(
-    req: &RankRequest,
-) -> Result<
-    (
-        ScoreConfig,
-        Option<WireCheckerContext>,
-        Option<String>,
-        Option<String>,
-    ),
-    (String, Option<String>),
-> {
+type RankScoreConfig = (
+    ScoreConfig,
+    Option<WireCheckerContext>,
+    Option<String>,
+    Option<String>,
+);
+type RankScoreConfigError = (String, Option<String>);
+
+fn rank_score_config(req: &RankRequest) -> Result<RankScoreConfig, RankScoreConfigError> {
     let Some(wire) = req.context.as_ref() else {
         return score_config(req.x_away, req.o_away)
             .map(|config| (config, None, None, None))

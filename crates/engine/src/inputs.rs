@@ -33,12 +33,10 @@ pub trait InputsGen {
         //     vec.set_len(vec.capacity());
         // }
 
-        vec.chunks_exact_mut(Self::NUM_INPUTS)
-            .zip(positions)
-            .rev()
-            .for_each(|(slice, pos)| {
-                self.fill_inputs(pos, slice);
-            });
+        for (index, pos) in positions.iter().enumerate().rev() {
+            let start = index * Self::NUM_INPUTS;
+            self.fill_inputs(pos, &mut vec[start..start + Self::NUM_INPUTS]);
+        }
         vec
     }
 }
