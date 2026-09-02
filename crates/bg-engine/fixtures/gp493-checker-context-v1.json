@@ -1,0 +1,441 @@
+{
+  "schema": "hsp-bg-checker-context-corpus/v1",
+  "source": {
+    "corpus": "hsp-bg-corpus/heldout/v1",
+    "evaluator": "wildbg embedded nets + Kazaross-XG2 cubeless MWC/v1",
+    "plies": 1,
+    "postCrawfordScope": "cube-disabled phase regression only; the normal live cube is unsupported"
+  },
+  "positions": [
+    {
+      "id": "heldout-64",
+      "phase": "contact",
+      "pips": [
+        -1,
+        5,
+        4,
+        2,
+        -1,
+        -4,
+        0,
+        0,
+        -1,
+        2,
+        0,
+        0,
+        0,
+        0,
+        0,
+        1,
+        0,
+        0,
+        0,
+        0,
+        1,
+        0,
+        -3,
+        -4,
+        -1,
+        0
+      ],
+      "dice": [
+        3,
+        6
+      ],
+      "cases": [
+        {
+          "label": "gammon-go",
+          "context": {
+            "mode": "match",
+            "matchLength": 5,
+            "scoreUs": 3,
+            "scoreThem": 1,
+            "pointsAwayUs": 2,
+            "pointsAwayThem": 4,
+            "cubeEnabled": false,
+            "cubeValue": 1,
+            "cubeOwner": "centred",
+            "crawfordState": "pre-crawford"
+          },
+          "expectedTop": [
+            {
+              "from": 20,
+              "to": 17
+            },
+            {
+              "from": 17,
+              "to": 11
+            }
+          ]
+        },
+        {
+          "label": "gammon-save",
+          "context": {
+            "mode": "match",
+            "matchLength": 5,
+            "scoreUs": 1,
+            "scoreThem": 3,
+            "pointsAwayUs": 4,
+            "pointsAwayThem": 2,
+            "cubeEnabled": false,
+            "cubeValue": 1,
+            "cubeOwner": "centred",
+            "crawfordState": "pre-crawford"
+          },
+          "expectedTop": [
+            {
+              "from": 20,
+              "to": 17
+            },
+            {
+              "from": 15,
+              "to": 9
+            }
+          ]
+        },
+        {
+          "label": "crawford",
+          "context": {
+            "mode": "match",
+            "matchLength": 5,
+            "scoreUs": 4,
+            "scoreThem": 1,
+            "pointsAwayUs": 1,
+            "pointsAwayThem": 4,
+            "cubeEnabled": false,
+            "cubeValue": 1,
+            "cubeOwner": "centred",
+            "crawfordState": "crawford"
+          },
+          "expectedTop": [
+            {
+              "from": 20,
+              "to": 17
+            },
+            {
+              "from": 15,
+              "to": 9
+            }
+          ]
+        },
+        {
+          "label": "post-crawford-cube-disabled",
+          "context": {
+            "mode": "match",
+            "matchLength": 5,
+            "scoreUs": 4,
+            "scoreThem": 1,
+            "pointsAwayUs": 1,
+            "pointsAwayThem": 4,
+            "cubeEnabled": false,
+            "cubeValue": 1,
+            "cubeOwner": "centred",
+            "crawfordState": "post-crawford"
+          },
+          "expectedTop": [
+            {
+              "from": 20,
+              "to": 17
+            },
+            {
+              "from": 15,
+              "to": 9
+            }
+          ]
+        },
+        {
+          "label": "global-no-cube-one-away",
+          "context": {
+            "mode": "match",
+            "matchLength": 5,
+            "scoreUs": 4,
+            "scoreThem": 0,
+            "pointsAwayUs": 1,
+            "pointsAwayThem": 5,
+            "cubeEnabled": false,
+            "cubeValue": 1,
+            "cubeOwner": "centred",
+            "crawfordState": "pre-crawford"
+          },
+          "expectedErrorCode": "unsupported_checker_context"
+        },
+        {
+          "label": "dead-cube",
+          "context": {
+            "mode": "match",
+            "matchLength": 5,
+            "scoreUs": 3,
+            "scoreThem": 1,
+            "pointsAwayUs": 2,
+            "pointsAwayThem": 4,
+            "cubeEnabled": true,
+            "cubeValue": 4,
+            "cubeOwner": "us",
+            "crawfordState": "pre-crawford"
+          },
+          "expectedTop": [
+            {
+              "from": 20,
+              "to": 17
+            },
+            {
+              "from": 15,
+              "to": 9
+            }
+          ]
+        },
+        {
+          "label": "live-cube",
+          "context": {
+            "mode": "match",
+            "matchLength": 5,
+            "scoreUs": 3,
+            "scoreThem": 1,
+            "pointsAwayUs": 2,
+            "pointsAwayThem": 4,
+            "cubeEnabled": true,
+            "cubeValue": 1,
+            "cubeOwner": "centred",
+            "crawfordState": "pre-crawford"
+          },
+          "expectedErrorCode": "unsupported_checker_context"
+        }
+      ]
+    },
+    {
+      "id": "heldout-226",
+      "phase": "race-bear-off",
+      "pips": [
+        0,
+        4,
+        3,
+        0,
+        0,
+        0,
+        2,
+        0,
+        0,
+        0,
+        -1,
+        3,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        1,
+        0,
+        0,
+        2,
+        -2,
+        -4,
+        0
+      ],
+      "dice": [
+        2,
+        2
+      ],
+      "cases": [
+        {
+          "label": "gammon-go",
+          "context": {
+            "mode": "match",
+            "matchLength": 5,
+            "scoreUs": 3,
+            "scoreThem": 1,
+            "pointsAwayUs": 2,
+            "pointsAwayThem": 4,
+            "cubeEnabled": false,
+            "cubeValue": 1,
+            "cubeOwner": "centred",
+            "crawfordState": "pre-crawford"
+          },
+          "expectedTop": [
+            {
+              "from": 22,
+              "to": 20
+            },
+            {
+              "from": 22,
+              "to": 20
+            },
+            {
+              "from": 20,
+              "to": 18
+            },
+            {
+              "from": 20,
+              "to": 18
+            }
+          ]
+        },
+        {
+          "label": "gammon-save",
+          "context": {
+            "mode": "match",
+            "matchLength": 5,
+            "scoreUs": 1,
+            "scoreThem": 3,
+            "pointsAwayUs": 4,
+            "pointsAwayThem": 2,
+            "cubeEnabled": false,
+            "cubeValue": 1,
+            "cubeOwner": "centred",
+            "crawfordState": "pre-crawford"
+          },
+          "expectedTop": [
+            {
+              "from": 22,
+              "to": 20
+            },
+            {
+              "from": 22,
+              "to": 20
+            },
+            {
+              "from": 20,
+              "to": 18
+            },
+            {
+              "from": 11,
+              "to": 9
+            }
+          ]
+        },
+        {
+          "label": "crawford",
+          "context": {
+            "mode": "match",
+            "matchLength": 5,
+            "scoreUs": 4,
+            "scoreThem": 1,
+            "pointsAwayUs": 1,
+            "pointsAwayThem": 4,
+            "cubeEnabled": false,
+            "cubeValue": 1,
+            "cubeOwner": "centred",
+            "crawfordState": "crawford"
+          },
+          "expectedTop": [
+            {
+              "from": 22,
+              "to": 20
+            },
+            {
+              "from": 22,
+              "to": 20
+            },
+            {
+              "from": 20,
+              "to": 18
+            },
+            {
+              "from": 11,
+              "to": 9
+            }
+          ]
+        },
+        {
+          "label": "post-crawford-cube-disabled",
+          "context": {
+            "mode": "match",
+            "matchLength": 5,
+            "scoreUs": 4,
+            "scoreThem": 1,
+            "pointsAwayUs": 1,
+            "pointsAwayThem": 4,
+            "cubeEnabled": false,
+            "cubeValue": 1,
+            "cubeOwner": "centred",
+            "crawfordState": "post-crawford"
+          },
+          "expectedTop": [
+            {
+              "from": 22,
+              "to": 20
+            },
+            {
+              "from": 22,
+              "to": 20
+            },
+            {
+              "from": 20,
+              "to": 18
+            },
+            {
+              "from": 11,
+              "to": 9
+            }
+          ]
+        },
+        {
+          "label": "global-no-cube-one-away",
+          "context": {
+            "mode": "match",
+            "matchLength": 5,
+            "scoreUs": 4,
+            "scoreThem": 0,
+            "pointsAwayUs": 1,
+            "pointsAwayThem": 5,
+            "cubeEnabled": false,
+            "cubeValue": 1,
+            "cubeOwner": "centred",
+            "crawfordState": "pre-crawford"
+          },
+          "expectedErrorCode": "unsupported_checker_context"
+        },
+        {
+          "label": "dead-cube",
+          "context": {
+            "mode": "match",
+            "matchLength": 5,
+            "scoreUs": 3,
+            "scoreThem": 1,
+            "pointsAwayUs": 2,
+            "pointsAwayThem": 4,
+            "cubeEnabled": true,
+            "cubeValue": 4,
+            "cubeOwner": "us",
+            "crawfordState": "pre-crawford"
+          },
+          "expectedTop": [
+            {
+              "from": 22,
+              "to": 20
+            },
+            {
+              "from": 11,
+              "to": 9
+            },
+            {
+              "from": 9,
+              "to": 7
+            },
+            {
+              "from": 7,
+              "to": 5
+            }
+          ]
+        },
+        {
+          "label": "live-cube",
+          "context": {
+            "mode": "match",
+            "matchLength": 5,
+            "scoreUs": 3,
+            "scoreThem": 1,
+            "pointsAwayUs": 2,
+            "pointsAwayThem": 4,
+            "cubeEnabled": true,
+            "cubeValue": 1,
+            "cubeOwner": "centred",
+            "crawfordState": "pre-crawford"
+          },
+          "expectedErrorCode": "unsupported_checker_context"
+        }
+      ]
+    }
+  ]
+}

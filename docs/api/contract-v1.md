@@ -37,7 +37,7 @@ carries the same three fields, built once at startup and never changed:
 | Field | Value |
 |---|---|
 | `apiVersion` | `1`. Clients require an exact match. A newer number is not compatible. |
-| `capabilities` | `["rank.v1", "evaluate.v1", "cube.money.v1", "plies.1", "plies.2"]` — only what this build implements. A client must find the capability for the operation it made (`rank.v1`, `cube.money.v1`) and, for `/rank`, the `plies.<n>` it asked for. |
+| `capabilities` | Includes `rank.v1`, additive `rank.match.v1`, `evaluate.v1`, `cube.money.v1`, `plies.1`, and `plies.2`. Match checker clients require both rank capabilities and the requested ply. |
 | `engineId` | `wildbg@<source revision>+contact@<sha256>+race@<sha256>`: the full commit hash the binary was built from and the SHA-256 of the exact `neural-nets/contact.onnx` and `race.onnx` bytes compiled into it. Baked in at build time; the build fails without a full commit hash, and there is no runtime override. |
 
 ## Health
@@ -65,6 +65,79 @@ Render's health-check path should be `/health` for the same reason.
 
 `results.length` always equals the number of request items; a client that
 receives a different count must discard the reply.
+
+## Checker evaluation context (`POST /rank`, GP-493)
+
+The legacy request remains valid. Omitting `context` preserves the original
+`xAway`/`oAway` behavior and response shape. An explicit money request uses
+`context: {"mode":"money"}` with `xAway:0` and `oAway:0` and produces the
+same ranking, equities, and result fields as the legacy money request.
+
+Match-aware checker ranking sends all fields below from the mover's point of
+view. `xAway` and `oAway` repeat `pointsAwayUs` and `pointsAwayThem`; a
+disagreement is rejected instead of silently choosing one source.
+
+```json
+{
+  "pips": ["26 wildbg pips"],
+  "die1": 3,
+  "die2": 6,
+  "xAway": 2,
+  "oAway": 4,
+  "plies": 1,
+  "context": {
+    "mode": "match",
+    "matchLength": 5,
+    "scoreUs": 3,
+    "scoreThem": 1,
+    "pointsAwayUs": 2,
+    "pointsAwayThem": 4,
+    "cubeEnabled": false,
+    "cubeValue": 1,
+    "cubeOwner": "centred",
+    "crawfordState": "pre-crawford"
+  }
+}
+```
+
+Supported 1-ply match contexts are scored in match-winning chance using the
+embedded neural probabilities and the Kazaross-XG2 match-equity table. A
+successful result echoes the exact `evaluatedContext` and includes
+`equityUnits:"mwc"` plus the non-empty, versioned `evaluationModel`. A client
+must reject a missing or different echo/model/units rather than claim the
+requested context was evaluated.
+
+This evaluator is cubeless. At 1-ply it supports cube-disabled match states
+before either player is one-away, DMP, Crawford, and a cube already dead to
+both players. A normal live
+post-Crawford game has the cube enabled and is therefore unsupported unless
+the cube is already dead. It does not approximate an ordinary live cube with
+money equity. Match-context requests at 2-ply are also unsupported because the
+current multi-ply evaluator chooses the opponent reply in money equity. Either
+unsupported request returns an item with no
+moves, `errorCode:"unsupported_checker_context"`, and a human-readable
+`error`; the HSP client may choose an identified fallback but must record that
+fallback as money-only. `POST /cube` remains `cube.money.v1` and match-play
+cube advice is outside this capability.
+
+One valid HSP state is intentionally narrower: when the match was created
+with the cube disabled globally, HSP does not run a Crawford game. Once either
+player reaches one-away it still sends `pre-crawford` with `cubeEnabled:false`.
+The standard Kazaross PRE/POST table does not prove that future no-cube match
+model, so this coherent state is also typed `unsupported_checker_context`
+until a dedicated no-cube MET is available.
+
+An internally inconsistent context (including impossible Crawford phase/cube
+facts or disagreeing redundant score fields) returns
+`errorCode:"invalid_checker_context"` without running the evaluator. Clients
+must not retry it, blame sidecar health, or replace it with money-game advice.
+
+The fixed context corpus in
+`crates/bg-engine/fixtures/gp493-checker-context-v1.json` exercises identical
+contact and race/bear-off positions at gammon-go/save scores, Crawford,
+an explicitly cube-disabled post-Crawford regression state, dead-cube, and
+unsupported live-cube and global-no-cube one-away contexts. It is an
+implementation regression corpus, not a bot-strength calibration set.
 
 ## What a client must do
 

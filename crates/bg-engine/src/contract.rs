@@ -29,9 +29,12 @@ pub const API_VERSION: u32 = 1;
 /// What this build implements. Each name is a promise the handlers keep:
 /// `rank.v1`, `evaluate.v1`, `cube.money.v1` are the three POST endpoints
 /// with their v1 shapes (cube is money-game only), and `plies.1` / `plies.2`
-/// are the search depths `/rank` will actually run.
-pub const CAPABILITIES: [&str; 5] = [
+/// are the search depths `/rank` will actually run. `rank.match.v1` is the
+/// additive 1-ply match-context scorer; match requests at 2-ply are refused
+/// with typed `unsupported_checker_context` until every reply ply is MWC-aware.
+pub const CAPABILITIES: [&str; 6] = [
     "rank.v1",
+    "rank.match.v1",
     "evaluate.v1",
     "cube.money.v1",
     "plies.1",
@@ -185,6 +188,7 @@ mod tests {
             a.capabilities,
             vec![
                 "rank.v1",
+                "rank.match.v1",
                 "evaluate.v1",
                 "cube.money.v1",
                 "plies.1",

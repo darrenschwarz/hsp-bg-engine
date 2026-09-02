@@ -42,6 +42,10 @@ use engine::position::Position;
 use engine::probabilities::Probabilities;
 use logic::bg_move::BgMove;
 use logic::cube::CubeInfo;
+use logic::match_equity::{
+    CrawfordState, CubeOwner, MatchContext, supported as match_context_supported,
+    validate as validate_match_context,
+};
 use logic::wildbg_api::{ScoreConfig, WildbgApi};
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
@@ -69,11 +73,15 @@ struct RankRequest {
     pips: Vec<i8>,
     die1: u32,
     die2: u32,
-    /// 0/0 = money game, 1/1 = DMP. Anything else is rejected upstream.
+    /// Legacy score fields: 0/0 = money and 1/1 = DMP when `context` is absent.
+    /// With a match context these repeat its mover-relative points-away values.
     #[serde(default)]
     x_away: u32,
     #[serde(default)]
     o_away: u32,
+    /// Additive GP-493 checker context. Absent retains the exact legacy money/DMP path.
+    #[serde(default)]
+    context: Option<WireCheckerContext>,
     /// Search depth. 0 or 1 = the net's own evaluation (default, ~0.1ms per
     /// decision). 2 = look one roll further, averaging the opponent's best
     /// reply over all 21 dice (~500x slower, and the difference between
@@ -81,6 +89,246 @@ struct RankRequest {
     /// with 400 before any evaluation starts: see `Depth`.
     #[serde(default)]
     plies: u32,
+}
+
+#[cfg(test)]
+mod checker_context_corpus_tests {
+    use super::test_support::state_with;
+    use super::*;
+    use serde_json::Value;
+    use std::fs;
+    use std::path::PathBuf;
+
+    #[test]
+    fn fixed_positions_rank_by_score_and_unsupported_live_cube_is_typed() {
+        let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("fixtures")
+            .join("gp493-checker-context-v1.json");
+        let corpus: Value = serde_json::from_str(&fs::read_to_string(path).unwrap()).unwrap();
+        let state = state_with(Ok(()), 1);
+        for position in corpus["positions"].as_array().unwrap() {
+            let mut tops = Vec::new();
+            for case in position["cases"].as_array().unwrap() {
+                let context: WireCheckerContext =
+                    serde_json::from_value(case["context"].clone()).unwrap();
+                let req = RankRequest {
+                    pips: serde_json::from_value(position["pips"].clone()).unwrap(),
+                    die1: position["dice"][0].as_u64().unwrap() as u32,
+                    die2: position["dice"][1].as_u64().unwrap() as u32,
+                    x_away: context.points_away_us.unwrap(),
+                    o_away: context.points_away_them.unwrap(),
+                    context: Some(context.clone()),
+                    plies: 1,
+                };
+                let (result, _) = rank_one(&state, &req, Depth::OnePly);
+                if let Some(code) = case.get("expectedErrorCode") {
+                    assert_eq!(result.error_code.as_deref(), code.as_str());
+                    assert!(result.moves.is_empty());
+                    continue;
+                }
+                assert_eq!(result.error, None, "{} / {}", position["id"], case["label"]);
+                assert_eq!(result.evaluated_context.as_ref(), Some(&context));
+                assert_eq!(result.equity_units.as_deref(), Some("mwc"));
+                assert_eq!(
+                    result.evaluation_model.as_deref(),
+                    Some("wildbg+kazaross-xg2-cubeless-mwc/v1")
+                );
+                let actual = serde_json::to_value(&result.moves[0].details).unwrap();
+                assert_eq!(
+                    actual, case["expectedTop"],
+                    "{} / {}",
+                    position["id"], case["label"]
+                );
+                if case["label"] == "gammon-go" || case["label"] == "gammon-save" {
+                    tops.push(actual);
+                }
+            }
+            assert_eq!(tops.len(), 2);
+            assert_ne!(
+                tops[0], tops[1],
+                "{} must have a fixed score-dependent ranking change",
+                position["id"]
+            );
+        }
+    }
+
+    #[test]
+    fn explicit_money_context_preserves_the_legacy_rank_result() {
+        let state = state_with(Ok(()), 1);
+        let legacy = RankRequest {
+            pips: opening_pips().to_vec(),
+            die1: 3,
+            die2: 1,
+            x_away: 0,
+            o_away: 0,
+            context: None,
+            plies: 1,
+        };
+        let explicit = RankRequest {
+            context: Some(WireCheckerContext {
+                mode: "money".into(),
+                match_length: None,
+                score_us: None,
+                score_them: None,
+                points_away_us: None,
+                points_away_them: None,
+                cube_enabled: None,
+                cube_value: None,
+                cube_owner: None,
+                crawford_state: None,
+            }),
+            ..RankRequest {
+                pips: legacy.pips.clone(),
+                die1: legacy.die1,
+                die2: legacy.die2,
+                x_away: legacy.x_away,
+                o_away: legacy.o_away,
+                context: None,
+                plies: legacy.plies,
+            }
+        };
+
+        let (legacy_result, legacy_positions) = rank_one(&state, &legacy, Depth::OnePly);
+        let (explicit_result, explicit_positions) = rank_one(&state, &explicit, Depth::OnePly);
+        assert_eq!(legacy_positions, explicit_positions);
+        assert_eq!(
+            serde_json::to_value(&legacy_result).unwrap(),
+            serde_json::to_value(&explicit_result).unwrap()
+        );
+        let wire = serde_json::to_value(&explicit_result).unwrap();
+        assert!(wire.get("evaluatedContext").is_none());
+        assert!(wire.get("equityUnits").is_none());
+        assert!(wire.get("evaluationModel").is_none());
+    }
+
+    #[test]
+    fn two_ply_match_context_is_typed_unsupported_until_every_ply_is_match_aware() {
+        let state = state_with(Ok(()), 1);
+        let context = WireCheckerContext {
+            mode: "match".into(),
+            match_length: Some(5),
+            score_us: Some(3),
+            score_them: Some(1),
+            points_away_us: Some(2),
+            points_away_them: Some(4),
+            cube_enabled: Some(false),
+            cube_value: Some(1),
+            cube_owner: Some("centred".into()),
+            crawford_state: Some("pre-crawford".into()),
+        };
+        let request = RankRequest {
+            pips: opening_pips().to_vec(),
+            die1: 3,
+            die2: 1,
+            x_away: 2,
+            o_away: 4,
+            context: Some(context),
+            plies: 2,
+        };
+        let (result, positions) = rank_one(&state, &request, Depth::TwoPly);
+        assert_eq!(positions, 0);
+        assert_eq!(
+            result.error_code.as_deref(),
+            Some("unsupported_checker_context")
+        );
+        assert!(result.moves.is_empty());
+        assert!(result.evaluated_context.is_none());
+        assert!(result.equity_units.is_none());
+        assert!(result.evaluation_model.is_none());
+    }
+
+    #[test]
+    fn incoherent_crawford_context_is_typed_invalid_without_evaluation() {
+        let state = state_with(Ok(()), 1);
+        let request = RankRequest {
+            pips: opening_pips().to_vec(),
+            die1: 3,
+            die2: 1,
+            x_away: 5,
+            o_away: 5,
+            context: Some(WireCheckerContext {
+                mode: "match".into(),
+                match_length: Some(5),
+                score_us: Some(0),
+                score_them: Some(0),
+                points_away_us: Some(5),
+                points_away_them: Some(5),
+                cube_enabled: Some(false),
+                cube_value: Some(1),
+                cube_owner: Some("centred".into()),
+                crawford_state: Some("crawford".into()),
+            }),
+            plies: 1,
+        };
+        let (result, positions) = rank_one(&state, &request, Depth::OnePly);
+        assert_eq!(positions, 0);
+        assert_eq!(
+            result.error_code.as_deref(),
+            Some("invalid_checker_context")
+        );
+        assert!(result.moves.is_empty());
+    }
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+struct WireCheckerContext {
+    mode: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    match_length: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    score_us: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    score_them: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    points_away_us: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    points_away_them: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    cube_enabled: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    cube_value: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    cube_owner: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    crawford_state: Option<String>,
+}
+
+impl WireCheckerContext {
+    fn match_context(&self) -> Result<MatchContext, String> {
+        if self.mode != "match" {
+            return Err("context.mode must be money or match".into());
+        }
+        let cube_owner = match self.cube_owner.as_deref() {
+            Some("us") => CubeOwner::Us,
+            Some("them") => CubeOwner::Them,
+            Some("centred") => CubeOwner::Centred,
+            _ => return Err("context.cubeOwner must be us, them or centred".into()),
+        };
+        let crawford_state = match self.crawford_state.as_deref() {
+            Some("pre-crawford") => CrawfordState::PreCrawford,
+            Some("crawford") => CrawfordState::Crawford,
+            Some("post-crawford") => CrawfordState::PostCrawford,
+            _ => return Err("context.crawfordState is invalid".into()),
+        };
+        let ctx = MatchContext {
+            match_length: self.match_length.ok_or("context.matchLength is required")?,
+            score_us: self.score_us.ok_or("context.scoreUs is required")?,
+            score_them: self.score_them.ok_or("context.scoreThem is required")?,
+            points_away_us: self
+                .points_away_us
+                .ok_or("context.pointsAwayUs is required")?,
+            points_away_them: self
+                .points_away_them
+                .ok_or("context.pointsAwayThem is required")?,
+            cube_enabled: self.cube_enabled.ok_or("context.cubeEnabled is required")?,
+            cube_value: self.cube_value.ok_or("context.cubeValue is required")?,
+            cube_owner,
+            crawford_state,
+        };
+        validate_match_context(&ctx)?;
+        Ok(ctx)
+    }
 }
 
 /// The evaluators this build implements, and the only depths a request may
@@ -151,7 +399,7 @@ struct RankedMove {
     /// instead of trusting our move decomposition.
     resulting_pips: Vec<i8>,
     probabilities: WireProbabilities,
-    /// Value under the requested score config (equity for money, win% for DMP).
+    /// Value under the requested score config: money equity, DMP win chance, or MWC.
     equity: f32,
     /// Equity given up versus the best move. Best move is always exactly 0.0.
     /// This is the number the difficulty sampler and the analyser both consume.
@@ -164,6 +412,14 @@ struct RankResult {
     moves: Vec<RankedMove>,
     /// Present when the position/dice were rejected; `moves` is then empty.
     error: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    error_code: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    evaluated_context: Option<WireCheckerContext>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    equity_units: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    evaluation_model: Option<String>,
 }
 
 /// One reply to a batch. `contract` is the same `ContractMeta` on every
@@ -406,6 +662,60 @@ fn score_config(x_away: u32, o_away: u32) -> Result<ScoreConfig, String> {
     ScoreConfig::try_from((x_away, o_away)).map_err(|e| e.to_string())
 }
 
+fn rank_score_config(
+    req: &RankRequest,
+) -> Result<
+    (
+        ScoreConfig,
+        Option<WireCheckerContext>,
+        Option<String>,
+        Option<String>,
+    ),
+    (String, Option<String>),
+> {
+    let Some(wire) = req.context.as_ref() else {
+        return score_config(req.x_away, req.o_away)
+            .map(|config| (config, None, None, None))
+            .map_err(|e| (e, None));
+    };
+    if wire.mode == "money" {
+        if req.x_away != 0 || req.o_away != 0 {
+            return Err((
+                "money context requires xAway=0 and oAway=0".into(),
+                Some("invalid_checker_context".into()),
+            ));
+        }
+        return Ok((ScoreConfig::MoneyGame, None, None, None));
+    }
+    let ctx = wire
+        .match_context()
+        .map_err(|e| (e, Some("invalid_checker_context".into())))?;
+    if req.x_away != ctx.points_away_us || req.o_away != ctx.points_away_them {
+        return Err((
+            "xAway/oAway must match the canonical context points-away fields".into(),
+            Some("invalid_checker_context".into()),
+        ));
+    }
+    if !match_context_supported(&ctx) {
+        let reason = if !ctx.cube_enabled
+            && ctx.crawford_state == CrawfordState::PreCrawford
+            && ctx.match_length > 1
+            && (ctx.points_away_us == 1 || ctx.points_away_them == 1)
+        {
+            "global cube-disabled one-away context needs a dedicated no-cube MET"
+        } else {
+            "live-cube checker context is not modelled; no money-equity substitution was used"
+        };
+        return Err((reason.into(), Some("unsupported_checker_context".into())));
+    }
+    Ok((
+        ScoreConfig::Match(ctx),
+        Some(wire.clone()),
+        Some("mwc".into()),
+        Some("wildbg+kazaross-xg2-cubeless-mwc/v1".into()),
+    ))
+}
+
 /// ORIENTATION TRAP — read before touching this.
 ///
 /// wildbg has two APIs that return a position after a move, and they use
@@ -437,6 +747,10 @@ fn rank_one(state: &AppState, req: &RankRequest, depth: Depth) -> (RankResult, u
                 RankResult {
                     moves: vec![],
                     error: Some(e),
+                    error_code: None,
+                    evaluated_context: None,
+                    equity_units: None,
+                    evaluation_model: None,
                 },
                 0,
             );
@@ -449,23 +763,48 @@ fn rank_one(state: &AppState, req: &RankRequest, depth: Depth) -> (RankResult, u
                 RankResult {
                     moves: vec![],
                     error: Some(e.to_string()),
+                    error_code: None,
+                    evaluated_context: None,
+                    equity_units: None,
+                    evaluation_model: None,
                 },
                 0,
             );
         }
     };
-    let config = match score_config(req.x_away, req.o_away) {
+    let (config, evaluated_context, equity_units, evaluation_model) = match rank_score_config(req) {
         Ok(c) => c,
-        Err(e) => {
+        Err((e, error_code)) => {
             return (
                 RankResult {
                     moves: vec![],
                     error: Some(e),
+                    error_code,
+                    evaluated_context: None,
+                    equity_units: None,
+                    evaluation_model: None,
                 },
                 0,
             );
         }
     };
+
+    if depth == Depth::TwoPly && matches!(&config, ScoreConfig::Match(_)) {
+        return (
+            RankResult {
+                moves: vec![],
+                error: Some(
+                    "2-ply opponent reply selection is money-equity-only; match context requires plies=1"
+                        .into(),
+                ),
+                error_code: Some("unsupported_checker_context".into()),
+                evaluated_context: None,
+                equity_units: None,
+                evaluation_model: None,
+            },
+            0,
+        );
+    }
 
     // all_moves returns (resulting position, probabilities) for every legal
     // move sequence, best first under the given score config.
@@ -501,7 +840,17 @@ fn rank_one(state: &AppState, req: &RankRequest, depth: Depth) -> (RankResult, u
         })
         .collect();
 
-    (RankResult { moves, error: None }, n)
+    (
+        RankResult {
+            moves,
+            error: None,
+            error_code: None,
+            evaluated_context,
+            equity_units,
+            evaluation_model,
+        },
+        n,
+    )
 }
 
 /// Standard opening position in wildbg's format.
@@ -857,6 +1206,10 @@ mod fixture_tests {
             results: vec![RankResult {
                 moves: vec![move_a(), move_b()],
                 error: None,
+                error_code: None,
+                evaluated_context: None,
+                equity_units: None,
+                evaluation_model: None,
             }],
             contract: meta(),
             eval_ms: 0.5,
@@ -1050,6 +1403,7 @@ mod test_support {
             die2: 1,
             x_away: 0,
             o_away: 0,
+            context: None,
             plies: 1,
         }]
     }

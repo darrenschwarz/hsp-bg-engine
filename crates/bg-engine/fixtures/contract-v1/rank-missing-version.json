@@ -106,6 +106,7 @@
   ],
   "capabilities": [
     "rank.v1",
+    "rank.match.v1",
     "evaluate.v1",
     "cube.money.v1",
     "plies.1",

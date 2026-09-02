@@ -1,5 +1,6 @@
 use crate::bg_move::BgMove;
 use crate::cube::CubeInfo;
+use crate::match_equity::{MatchContext, mwc};
 use engine::composite::CompositeEvaluator;
 use engine::dice::Dice;
 use engine::evaluator::Evaluator;
@@ -9,6 +10,7 @@ use engine::probabilities::Probabilities;
 pub enum ScoreConfig {
     MoneyGame,
     OnePointer,
+    Match(MatchContext),
 }
 
 impl TryFrom<(u32, u32)> for ScoreConfig {
@@ -28,10 +30,23 @@ impl TryFrom<(u32, u32)> for ScoreConfig {
 
 impl ScoreConfig {
     #[inline]
-    pub fn value(&self) -> impl Fn(&Probabilities) -> f32 {
+    pub fn value(&self) -> Box<dyn Fn(&Probabilities) -> f32 + '_> {
         match self {
-            ScoreConfig::OnePointer => |p: &Probabilities| p.win(),
-            ScoreConfig::MoneyGame => |p: &Probabilities| p.equity(),
+            ScoreConfig::OnePointer => Box::new(|p: &Probabilities| p.win()),
+            ScoreConfig::MoneyGame => Box::new(|p: &Probabilities| p.equity()),
+            ScoreConfig::Match(ctx) => Box::new(move |p: &Probabilities| {
+                mwc(
+                    [
+                        p.win_normal,
+                        p.win_gammon,
+                        p.win_bg,
+                        p.lose_normal,
+                        p.lose_gammon,
+                        p.lose_bg,
+                    ],
+                    ctx,
+                )
+            }),
         }
     }
 }

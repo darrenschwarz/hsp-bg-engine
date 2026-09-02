@@ -16,6 +16,14 @@ never drift from what the server actually sends.
 | `rank-missing-identity.json` | no `engineId` — reject; a client must never substitute its own label |
 | `rank-result-count-mismatch.json` | two results for a one-position request — reject |
 
+The additive `rank.match.v1` capability is present in every canonical reply
+that advertises rank support. It covers 1-ply match-context scoring; a match
+request at 2-ply is typed unsupported until the opponent reply is also chosen
+in MWC. Match request/result examples live separately in
+`../gp493-checker-context-v1.json`; the v1 canonical money result stays free of
+the optional context/provenance fields so old money clients retain their
+original result shape.
+
 `MANIFEST.sha256` lists every fixture's SHA-256. The HSP repository carries
 byte-identical copies under `src/backgammon/__tests__/fixtures/bg-engine-contract-v1/`
 together with this manifest, and its tests re-hash the copies against it — so
