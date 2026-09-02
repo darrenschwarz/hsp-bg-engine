@@ -1,0 +1,3 @@
+# Canonical contract fixtures are hashed byte-for-byte across repositories and OSes.
+crates/bg-engine/fixtures/contract-v1/*.json text eol=lf
+crates/bg-engine/fixtures/contract-v1/MANIFEST.sha256 text eol=lf

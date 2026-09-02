@@ -1329,6 +1329,10 @@ mod fixture_tests {
             let (expected, name) = line.split_once("  ").expect("`<sha256>  <file>` lines");
             let bytes =
                 fs::read(fixture_dir().join(name)).unwrap_or_else(|e| panic!("{name}: {e}"));
+            assert!(
+                !bytes.contains(&b'\r'),
+                "{name} must use canonical LF line endings"
+            );
             let actual: String = Sha256::digest(&bytes)
                 .iter()
                 .map(|b| format!("{b:02x}"))
