@@ -37,7 +37,7 @@ carries the same three fields, built once at startup and never changed:
 | Field | Value |
 |---|---|
 | `apiVersion` | `1`. Clients require an exact match. A newer number is not compatible. |
-| `capabilities` | Includes `rank.v1`, additive `rank.match.v1`, `evaluate.v1`, `cube.money.v1`, `plies.1`, and `plies.2`. Match checker clients require both rank capabilities and the requested ply. |
+| `capabilities` | Includes `rank.v1`, additive `rank.match.v1`, `evaluate.v1`, `cube.money.v1`, additive `cube.match.v1`, `plies.1`, and `plies.2`. Match checker clients require both rank capabilities and the requested ply; live match bots also require `cube.match.v1`. |
 | `engineId` | `wildbg@<source revision>+contact@<sha256>+race@<sha256>`: the full commit hash the binary was built from and the SHA-256 of the exact `neural-nets/contact.onnx` and `race.onnx` bytes compiled into it. Baked in at build time; the build fails without a full commit hash, and there is no runtime override. |
 
 ## Health
@@ -107,18 +107,28 @@ successful result echoes the exact `evaluatedContext` and includes
 must reject a missing or different echo/model/units rather than claim the
 requested context was evaluated.
 
-This evaluator is cubeless. At 1-ply it supports cube-disabled match states
-before either player is one-away, DMP, Crawford, and a cube already dead to
-both players. A normal live
-post-Crawford game has the cube enabled and is therefore unsupported unless
-the cube is already dead. It does not approximate an ordinary live cube with
-money equity. Match-context requests at 2-ply are also unsupported because the
-current multi-ply evaluator chooses the opponent reply in money equity. Either
+At 1-ply the evaluator supports ordinary live-cube match states, DMP,
+Crawford, post-Crawford, and a cube already dead to both players. Checker
+candidates are compared in match-winning chance at the currently accepted
+cube value; the separately versioned `/cube` evaluator handles offers, takes,
+and drops. Match-context requests at 2-ply remain unsupported because the
+current multi-ply evaluator chooses the opponent reply in money equity. An
 unsupported request returns an item with no
 moves, `errorCode:"unsupported_checker_context"`, and a human-readable
 `error`; the HSP client may choose an identified fallback but must record that
-fallback as money-only. `POST /cube` remains `cube.money.v1` and match-play
-cube advice is outside this capability.
+fallback as money-only.
+
+## Cube evaluation (`POST /cube`)
+
+Omitting `context`, or sending `{"mode":"money"}`, preserves the established
+Janowski money-game result under `cube.money.v1`. Sending the same canonical
+match context used by `/rank` requires `cube.match.v1`. The engine maps the
+neural net's six exclusive win/gammon/backgammon outcomes through the
+Kazaross-XG2 match-equity table at the current and doubled cube values, and
+compares those values with the immediate drop result. This supplies legal
+double, take and drop advice across ordinary live-cube, Crawford and
+post-Crawford play. A successful match result echoes the exact context and
+reports `equityUnits:"mwc"` with a versioned `evaluationModel`.
 
 One valid HSP state is intentionally narrower: when the match was created
 with the cube disabled globally, HSP does not run a Crawford game. Once either
@@ -135,8 +145,8 @@ must not retry it, blame sidecar health, or replace it with money-game advice.
 The fixed context corpus in
 `crates/bg-engine/fixtures/gp493-checker-context-v1.json` exercises identical
 contact and race/bear-off positions at gammon-go/save scores, Crawford,
-an explicitly cube-disabled post-Crawford regression state, dead-cube, and
-unsupported live-cube and global-no-cube one-away contexts. It is an
+an explicitly cube-disabled post-Crawford regression state, dead-cube,
+live-cube, and unsupported global-no-cube one-away contexts. It is an
 implementation regression corpus, not a bot-strength calibration set.
 
 ## What a client must do

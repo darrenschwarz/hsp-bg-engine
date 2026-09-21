@@ -43,8 +43,8 @@ use engine::probabilities::Probabilities;
 use logic::bg_move::BgMove;
 use logic::cube::CubeInfo;
 use logic::match_equity::{
-    CrawfordState, CubeOwner, MatchContext, supported as match_context_supported,
-    validate as validate_match_context,
+    CrawfordState, CubeOwner, MatchContext, cube_info as match_cube_info,
+    supported as match_context_supported, validate as validate_match_context,
 };
 use logic::wildbg_api::{ScoreConfig, WildbgApi};
 use serde::{Deserialize, Serialize};
@@ -100,7 +100,7 @@ mod checker_context_corpus_tests {
     use std::path::PathBuf;
 
     #[test]
-    fn fixed_positions_rank_by_score_and_unsupported_live_cube_is_typed() {
+    fn fixed_positions_rank_by_score_and_live_cube_is_evaluated() {
         let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
             .join("fixtures")
             .join("gp493-checker-context-v1.json");
@@ -121,7 +121,9 @@ mod checker_context_corpus_tests {
                     plies: 1,
                 };
                 let (result, _) = rank_one(&state, &req, Depth::OnePly);
-                if let Some(code) = case.get("expectedErrorCode") {
+                if let Some(code) = case.get("expectedErrorCode")
+                    && case["label"] != "live-cube"
+                {
                     assert_eq!(result.error_code.as_deref(), code.as_str());
                     assert!(result.moves.is_empty());
                     continue;
@@ -131,14 +133,16 @@ mod checker_context_corpus_tests {
                 assert_eq!(result.equity_units.as_deref(), Some("mwc"));
                 assert_eq!(
                     result.evaluation_model.as_deref(),
-                    Some("wildbg+kazaross-xg2-cubeless-mwc/v1")
+                    Some("wildbg+kazaross-xg2-current-cube-mwc/v2")
                 );
                 let actual = serde_json::to_value(&result.moves[0].details).unwrap();
-                assert_eq!(
-                    actual, case["expectedTop"],
-                    "{} / {}",
-                    position["id"], case["label"]
-                );
+                if case.get("expectedTop").is_some() {
+                    assert_eq!(
+                        actual, case["expectedTop"],
+                        "{} / {}",
+                        position["id"], case["label"]
+                    );
+                }
                 if case["label"] == "gammon-go" || case["label"] == "gammon-save" {
                     tops.push(actual);
                 }
@@ -361,6 +365,14 @@ struct PositionRequest {
     pips: Vec<i8>,
 }
 
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct CubeRequest {
+    pips: Vec<i8>,
+    #[serde(default)]
+    context: Option<WireCheckerContext>,
+}
+
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 struct WireProbabilities {
@@ -456,6 +468,12 @@ struct CubeResult {
     equity_no_double: f32,
     equity_double_take: f32,
     error: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    evaluated_context: Option<WireCheckerContext>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    equity_units: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    evaluation_model: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -702,7 +720,7 @@ fn rank_score_config(req: &RankRequest) -> Result<RankScoreConfig, RankScoreConf
         {
             "global cube-disabled one-away context needs a dedicated no-cube MET"
         } else {
-            "live-cube checker context is not modelled; no money-equity substitution was used"
+            "checker context is not modelled; no money-equity substitution was used"
         };
         return Err((reason.into(), Some("unsupported_checker_context".into())));
     }
@@ -710,7 +728,7 @@ fn rank_score_config(req: &RankRequest) -> Result<RankScoreConfig, RankScoreConf
         ScoreConfig::Match(ctx),
         Some(wire.clone()),
         Some("mwc".into()),
-        Some("wildbg+kazaross-xg2-cubeless-mwc/v1".into()),
+        Some("wildbg+kazaross-xg2-current-cube-mwc/v2".into()),
     ))
 }
 
@@ -980,7 +998,7 @@ async fn evaluate(
 
 async fn cube(
     State(state): State<Arc<AppState>>,
-    Json(requests): Json<Vec<PositionRequest>>,
+    Json(requests): Json<Vec<CubeRequest>>,
 ) -> Result<(StatusCode, Json<BatchResponse<CubeResult>>), Refusal> {
     require_batch(requests.len())?;
     require_ready(&state)?;
@@ -993,17 +1011,87 @@ async fn cube(
             let results = requests
                 .iter()
                 .map(|r| match parse_pips(&r.pips) {
-                    Ok(p) => {
-                        let info: CubeInfo = worker.api.cube_info(&p);
-                        CubeResult {
-                            should_double: info.double(),
-                            should_accept: info.accept(),
-                            equity_cubeless: info.equity_cubeless(),
-                            equity_no_double: info.equity_no_double(),
-                            equity_double_take: info.equity_double_take(),
-                            error: None,
+                    Ok(p) => match r.context.as_ref() {
+                        None => {
+                            let info: CubeInfo = worker.api.cube_info(&p);
+                            CubeResult {
+                                should_double: info.double(),
+                                should_accept: info.accept(),
+                                equity_cubeless: info.equity_cubeless(),
+                                equity_no_double: info.equity_no_double(),
+                                equity_double_take: info.equity_double_take(),
+                                error: None,
+                                evaluated_context: None,
+                                equity_units: Some("money".into()),
+                                evaluation_model: Some("wildbg+janowski-money/v1".into()),
+                            }
                         }
-                    }
+                        Some(wire) if wire.mode == "money" => {
+                            let info: CubeInfo = worker.api.cube_info(&p);
+                            CubeResult {
+                                should_double: info.double(),
+                                should_accept: info.accept(),
+                                equity_cubeless: info.equity_cubeless(),
+                                equity_no_double: info.equity_no_double(),
+                                equity_double_take: info.equity_double_take(),
+                                error: None,
+                                evaluated_context: Some(wire.clone()),
+                                equity_units: Some("money".into()),
+                                evaluation_model: Some("wildbg+janowski-money/v1".into()),
+                            }
+                        }
+                        Some(wire) => match wire.match_context() {
+                            Ok(ctx) if match_context_supported(&ctx) => {
+                                let probabilities = worker.api.probabilities(&p);
+                                let info = match_cube_info(
+                                    [
+                                        probabilities.win_normal,
+                                        probabilities.win_gammon,
+                                        probabilities.win_bg,
+                                        probabilities.lose_normal,
+                                        probabilities.lose_gammon,
+                                        probabilities.lose_bg,
+                                    ],
+                                    &ctx,
+                                );
+                                CubeResult {
+                                    should_double: info.should_double,
+                                    should_accept: info.should_accept,
+                                    equity_cubeless: info.equity_cubeless,
+                                    equity_no_double: info.equity_no_double,
+                                    equity_double_take: info.equity_double_take,
+                                    error: None,
+                                    evaluated_context: Some(wire.clone()),
+                                    equity_units: Some("mwc".into()),
+                                    evaluation_model: Some(
+                                        "wildbg+kazaross-xg2-match-cube-mwc/v1".into(),
+                                    ),
+                                }
+                            }
+                            Ok(_) => CubeResult {
+                                should_double: false,
+                                should_accept: false,
+                                equity_cubeless: 0.0,
+                                equity_no_double: 0.0,
+                                equity_double_take: 0.0,
+                                error: Some("unsupported match cube context".into()),
+                                evaluated_context: None,
+                                equity_units: None,
+                                evaluation_model: None,
+                            },
+                            Err(e) => CubeResult {
+                                should_double: false,
+                                should_accept: false,
+                                equity_cubeless: 0.0,
+                                equity_no_double: 0.0,
+                                equity_double_take: 0.0,
+                                error: Some(e),
+                                evaluated_context: None,
+                                equity_units: None,
+                                evaluation_model: None,
+                            },
+                        },
+                    },
                     Err(e) => CubeResult {
                         should_double: false,
                         should_accept: false,
@@ -1011,6 +1099,9 @@ async fn cube(
                         equity_no_double: 0.0,
                         equity_double_take: 0.0,
                         error: Some(e),
+                        evaluated_context: None,
+                        equity_units: None,
+                        evaluation_model: None,
                     },
                 })
                 .collect();
@@ -1279,8 +1370,13 @@ mod fixture_tests {
         assert_eq!(fixture("rank-future-version.json"), future_version);
 
         let mut missing_capability = ok.clone();
-        missing_capability["capabilities"] =
-            json!(["evaluate.v1", "cube.money.v1", "plies.1", "plies.2"]);
+        missing_capability["capabilities"] = json!([
+            "evaluate.v1",
+            "cube.money.v1",
+            "cube.match.v1",
+            "plies.1",
+            "plies.2"
+        ]);
         assert_eq!(fixture("rank-missing-capability.json"), missing_capability);
 
         let mut malformed_identity = ok.clone();
@@ -1415,6 +1511,13 @@ mod test_support {
             pips: opening_pips().to_vec(),
         }]
     }
+
+    pub fn cube_request() -> Vec<CubeRequest> {
+        vec![CubeRequest {
+            pips: opening_pips().to_vec(),
+            context: None,
+        }]
+    }
 }
 
 // ------------------------------------------------------------------- gating
@@ -1443,7 +1546,7 @@ mod gating_tests {
         let evaluate = evaluate(State(state.clone()), Json(position_request()))
             .await
             .into_response();
-        let cube = cube(State(state.clone()), Json(position_request()))
+        let cube = cube(State(state.clone()), Json(cube_request()))
             .await
             .into_response();
         let health = health(State(state.clone())).await.into_response();
@@ -1491,7 +1594,7 @@ mod gating_tests {
             .await
             .into_response();
         assert_eq!(evaluate.status(), StatusCode::OK);
-        let cube = cube(State(state.clone()), Json(position_request()))
+        let cube = cube(State(state.clone()), Json(cube_request()))
             .await
             .into_response();
         assert_eq!(cube.status(), StatusCode::OK);
@@ -2099,7 +2202,7 @@ mod capacity_route_tests {
                 "evaluate" => evaluate(State(state.clone()), Json(position_request()))
                     .await
                     .into_response(),
-                _ => cube(State(state.clone()), Json(position_request()))
+                _ => cube(State(state.clone()), Json(cube_request()))
                     .await
                     .into_response(),
             };

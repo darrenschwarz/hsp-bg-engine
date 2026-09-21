@@ -219,10 +219,14 @@ pub fn supported(ctx: &MatchContext) -> bool {
         && ctx.crawford_state == CrawfordState::PreCrawford
         && ctx.match_length > 1
         && (ctx.points_away_us == 1 || ctx.points_away_them == 1);
+    // Standard match play is evaluable at every live-cube score.  The
+    // current cube value is applied to all six terminal outcomes below and
+    // cube actions are evaluated separately by `cube_info`.  The one context
+    // we still decline is a non-standard match that disables both the cube
+    // and the Crawford rule globally: the published Kazaross table does not
+    // describe the future-game equity of that ruleset once somebody is
+    // one-away.
     !global_no_cube_one_away
-        && (!ctx.cube_enabled
-            || (ctx.points_away_us == 1 && ctx.points_away_them == 1)
-            || (ctx.cube_value >= ctx.points_away_us && ctx.cube_value >= ctx.points_away_them))
 }
 
 fn met(ours: i32, theirs: i32, phase: CrawfordState) -> f32 {
@@ -279,6 +283,93 @@ pub fn mwc(prob: [f32; 6], ctx: &MatchContext) -> f32 {
         + lbg * after(ours, theirs - 3 * stake)
 }
 
+/// Match-aware cube advice derived from the neural evaluator's six exclusive
+/// game outcomes and the Kazaross-XG2 match equity table.
+///
+/// These values are match-winning chances, not money-game points.  The
+/// no-double and double/take branches map singles, gammons and backgammons at
+/// the current and doubled cube values through the MET.  Drop branches score
+/// the current cube immediately.  That is sufficient for legal double/take
+/// decisions throughout ordinary, Crawford and post-Crawford match play;
+/// checker ranking continues to use the current accepted cube value.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct MatchCubeInfo {
+    pub should_double: bool,
+    pub should_accept: bool,
+    pub equity_cubeless: f32,
+    pub equity_no_double: f32,
+    pub equity_double_take: f32,
+}
+
+fn met_after(ctx: &MatchContext, ours: i32, theirs: i32) -> f32 {
+    if ours <= 0 {
+        return 1.0;
+    }
+    if theirs <= 0 {
+        return 0.0;
+    }
+    let next_phase = match ctx.crawford_state {
+        CrawfordState::PreCrawford => CrawfordState::Crawford,
+        CrawfordState::Crawford | CrawfordState::PostCrawford => CrawfordState::PostCrawford,
+    };
+    let phase = if ours == 1 || theirs == 1 {
+        next_phase
+    } else {
+        CrawfordState::PreCrawford
+    };
+    met(ours, theirs, phase)
+}
+
+fn outcome_mwc(prob: [f32; 6], ctx: &MatchContext, stake: u32) -> f32 {
+    let [wn, wg, wbg, ln, lg, lbg] = prob;
+    let stake = stake as i32;
+    let ours = ctx.points_away_us as i32;
+    let theirs = ctx.points_away_them as i32;
+    wn * met_after(ctx, ours - stake, theirs)
+        + wg * met_after(ctx, ours - 2 * stake, theirs)
+        + wbg * met_after(ctx, ours - 3 * stake, theirs)
+        + ln * met_after(ctx, ours, theirs - stake)
+        + lg * met_after(ctx, ours, theirs - 2 * stake)
+        + lbg * met_after(ctx, ours, theirs - 3 * stake)
+}
+
+pub fn cube_info(prob: [f32; 6], ctx: &MatchContext) -> MatchCubeInfo {
+    let equity_cubeless = outcome_mwc(prob, ctx, ctx.cube_value);
+    let equity_no_double = equity_cubeless;
+    let doubled = ctx.cube_value.saturating_mul(2);
+    let equity_double_take = outcome_mwc(prob, ctx, doubled);
+
+    // They drop our double: we bank the pre-double cube.  A rational
+    // responder chooses the branch that minimises our match-winning chance.
+    let equity_double_drop = met_after(
+        ctx,
+        ctx.points_away_us as i32 - ctx.cube_value as i32,
+        ctx.points_away_them as i32,
+    );
+    let equity_after_offer = equity_double_take.min(equity_double_drop);
+    let cube_dead_for_us = ctx.cube_value >= ctx.points_away_us;
+    let may_double = ctx.cube_enabled
+        && ctx.crawford_state != CrawfordState::Crawford
+        && !cube_dead_for_us
+        && ctx.cube_owner != CubeOwner::Them;
+
+    // We drop their double: they bank the pre-double cube.  We take whenever
+    // playing on leaves at least as much match-winning chance as dropping.
+    let equity_drop_theirs = met_after(
+        ctx,
+        ctx.points_away_us as i32,
+        ctx.points_away_them as i32 - ctx.cube_value as i32,
+    );
+
+    MatchCubeInfo {
+        should_double: may_double && equity_after_offer > equity_no_double,
+        should_accept: equity_double_take >= equity_drop_theirs,
+        equity_cubeless,
+        equity_no_double,
+        equity_double_take,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -306,10 +397,27 @@ mod tests {
         assert!(mwc(candidate_a, &ctx(4, 2)) < mwc(candidate_b, &ctx(4, 2)));
     }
     #[test]
-    fn live_cube_is_explicitly_unsupported() {
+    fn live_cube_is_supported_at_the_current_cube_value() {
         let mut c = ctx(4, 4);
         c.cube_enabled = true;
-        assert!(!supported(&c));
+        assert!(supported(&c));
+    }
+
+    #[test]
+    fn match_cube_advice_uses_score_and_drop_equity() {
+        let mut c = ctx(5, 5);
+        c.cube_enabled = true;
+        let clear_edge = [0.70, 0.0, 0.0, 0.30, 0.0, 0.0];
+        let advice = cube_info(clear_edge, &c);
+        assert!(advice.should_double);
+        assert!(advice.should_accept);
+
+        c.points_away_us = 1;
+        c.score_us = 4;
+        c.crawford_state = CrawfordState::Crawford;
+        c.cube_enabled = false;
+        let crawford = cube_info(clear_edge, &c);
+        assert!(!crawford.should_double);
     }
 
     #[test]
@@ -340,6 +448,6 @@ mod tests {
         c.crawford_state = CrawfordState::PostCrawford;
         c.cube_enabled = true;
         assert!(validate(&c).is_ok());
-        assert!(!supported(&c));
+        assert!(supported(&c));
     }
 }

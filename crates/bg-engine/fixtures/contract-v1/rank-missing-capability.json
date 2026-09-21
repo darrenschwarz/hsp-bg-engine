@@ -108,6 +108,7 @@
   "capabilities": [
     "evaluate.v1",
     "cube.money.v1",
+    "cube.match.v1",
     "plies.1",
     "plies.2"
   ],
