@@ -109,7 +109,7 @@ requested context was evaluated.
 
 At 1-ply the evaluator supports ordinary live-cube match states, DMP,
 Crawford, post-Crawford, and a cube already dead to both players. Checker
-candidates are compared in match-winning chance at the currently accepted
+candidates are compared in match-winning chance at the current
 cube value; the separately versioned `/cube` evaluator handles offers, takes,
 and drops. Match-context requests at 2-ply remain unsupported because the
 current multi-ply evaluator chooses the opponent reply in money equity. An
@@ -117,6 +117,13 @@ unsupported request returns an item with no
 moves, `errorCode:"unsupported_checker_context"`, and a human-readable
 `error`; the HSP client may choose an identified fallback but must record that
 fallback as money-only.
+
+HSP automatic doubles on tied opening rolls increase `cubeValue` while
+`cubeOwner` remains `"centred"`: either player can still offer the first
+voluntary double. Both `/rank` and `/cube` accept these enabled, positive
+power-of-two cube values without assigning an owner or resetting the stake.
+A disabled cube (including the Crawford game) must remain centred at 1;
+a 1-cube cannot be owned by either player.
 
 ## Cube evaluation (`POST /cube`)
 

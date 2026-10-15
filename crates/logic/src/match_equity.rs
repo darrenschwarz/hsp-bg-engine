@@ -182,9 +182,8 @@ pub fn validate(ctx: &MatchContext) -> Result<(), String> {
     if ctx.cube_value == 1 && ctx.cube_owner != CubeOwner::Centred {
         return Err("a 1-cube must be centred".into());
     }
-    if ctx.cube_value > 1 && ctx.cube_owner == CubeOwner::Centred {
-        return Err("a turned cube must have an owner".into());
-    }
+    // Opening ties can automatically raise a live cube without transferring
+    // ownership. A centred cube above 1 is valid: either player may offer it.
     if !ctx.cube_enabled && (ctx.cube_value != 1 || ctx.cube_owner != CubeOwner::Centred) {
         return Err("a disabled cube must be centred at 1".into());
     }
@@ -401,6 +400,61 @@ mod tests {
         let mut c = ctx(4, 4);
         c.cube_enabled = true;
         assert!(supported(&c));
+    }
+
+    #[test]
+    fn automatic_doubles_keep_the_cube_centred_and_both_players_may_offer() {
+        let clear_edge = [0.70, 0.0, 0.0, 0.30, 0.0, 0.0];
+        let mut c = ctx(5, 5);
+        c.cube_enabled = true;
+        for value in [2, 4, 8, 64] {
+            c.cube_value = value;
+            assert_eq!(validate(&c), Ok(()), "centred {value}-cube");
+            assert!(supported(&c));
+            let advice = cube_info(clear_edge, &c);
+            assert_eq!(advice.equity_cubeless, mwc(clear_edge, &c));
+            assert_eq!(advice.should_double, value < 5);
+        }
+
+        c.cube_value = 2;
+        let centred = cube_info(clear_edge, &c);
+        c.cube_owner = CubeOwner::Us;
+        assert_eq!(validate(&c), Ok(()));
+        assert!(cube_info(clear_edge, &c).should_double);
+        c.cube_owner = CubeOwner::Them;
+        assert_eq!(validate(&c), Ok(()));
+        let owned_by_them = cube_info(clear_edge, &c);
+        assert!(!owned_by_them.should_double);
+        assert_eq!(centred.equity_cubeless, owned_by_them.equity_cubeless);
+    }
+
+    #[test]
+    fn automatic_doubles_do_not_relax_invalid_cube_states() {
+        let mut c = ctx(5, 5);
+        c.cube_enabled = true;
+        for value in [0, 3, 6] {
+            c.cube_value = value;
+            assert!(validate(&c).unwrap_err().contains("positive power of two"));
+        }
+        c.cube_value = 1;
+        for owner in [CubeOwner::Us, CubeOwner::Them] {
+            c.cube_owner = owner;
+            assert!(validate(&c).unwrap_err().contains("1-cube must be centred"));
+        }
+        c.cube_owner = CubeOwner::Centred;
+        c.cube_value = 2;
+        c.cube_enabled = false;
+        assert!(validate(&c).unwrap_err().contains("disabled cube"));
+
+        c = ctx(1, 5);
+        c.crawford_state = CrawfordState::Crawford;
+        c.cube_enabled = true;
+        c.cube_value = 2;
+        assert!(
+            validate(&c)
+                .unwrap_err()
+                .contains("disabled centred 1-cube")
+        );
     }
 
     #[test]
