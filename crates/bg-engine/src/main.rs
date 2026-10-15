@@ -274,6 +274,94 @@ mod checker_context_corpus_tests {
     }
 }
 
+#[cfg(test)]
+mod automatic_double_context_tests {
+    use super::test_support::*;
+    use super::*;
+    use axum::body::Body;
+    use axum::http::Request;
+    use serde_json::{Value, json};
+    use tower::ServiceExt;
+
+    fn context(value: u32) -> Value {
+        json!({
+            "mode": "match", "matchLength": 5,
+            "scoreUs": 0, "scoreThem": 0,
+            "pointsAwayUs": 5, "pointsAwayThem": 5,
+            "cubeEnabled": true, "cubeValue": value,
+            "cubeOwner": "centred", "crawfordState": "pre-crawford"
+        })
+    }
+
+    async fn evaluate_context(state: Arc<AppState>, path: &str, context: Value) -> Value {
+        let request = Request::post(path)
+            .header("content-type", "application/json")
+            .header("authorization", format!("Bearer {TEST_TOKEN}"))
+            .body(Body::from(
+                json!([{
+                    "pips": opening_pips(), "die1": 3, "die2": 1,
+                    "xAway": context["pointsAwayUs"], "oAway": context["pointsAwayThem"],
+                    "plies": 1, "context": context
+                }])
+                .to_string(),
+            ))
+            .unwrap();
+        let response = app(state).oneshot(request).await.unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        body_of(response).await
+    }
+
+    #[tokio::test]
+    async fn rank_and_cube_evaluate_centred_automatic_doubles_without_changing_the_context() {
+        let state = state_with(Ok(()), 1);
+        for value in [1, 2, 4, 8, 64] {
+            let context = context(value);
+            for path in ["/rank", "/cube"] {
+                let response = evaluate_context(state.clone(), path, context.clone()).await;
+                let result = &response["results"][0];
+                assert!(result["error"].is_null(), "{path}, cube {value}: {result}");
+                assert_eq!(result["evaluatedContext"], context);
+                assert_eq!(result["equityUnits"], "mwc");
+                assert!(response["positionsEvaluated"].as_u64().unwrap() > 0);
+                if path == "/rank" {
+                    assert!(!result["moves"].as_array().unwrap().is_empty());
+                } else {
+                    assert!(result["equityCubeless"].as_f64().unwrap().is_finite());
+                    assert!(result["equityDoubleTake"].as_f64().unwrap().is_finite());
+                    if value >= 5 {
+                        assert_eq!(result["shouldDouble"], false, "cube is dead");
+                    }
+                }
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn rank_and_cube_still_reject_disabled_non_power_of_two_and_crawford_doubles() {
+        let state = state_with(Ok(()), 1);
+        let mut disabled = context(2);
+        disabled["cubeEnabled"] = json!(false);
+        let mut crawford = context(2);
+        crawford["scoreUs"] = json!(4);
+        crawford["pointsAwayUs"] = json!(1);
+        crawford["crawfordState"] = json!("crawford");
+        for context in [disabled, context(3), crawford] {
+            for path in ["/rank", "/cube"] {
+                let response = evaluate_context(state.clone(), path, context.clone()).await;
+                let result = &response["results"][0];
+                assert!(result["error"].is_string(), "{path}: {result}");
+                assert!(result["evaluatedContext"].is_null());
+                assert!(result["equityUnits"].is_null());
+                if path == "/rank" {
+                    assert_eq!(result["errorCode"], "invalid_checker_context");
+                    assert!(result["moves"].as_array().unwrap().is_empty());
+                    assert_eq!(response["positionsEvaluated"], 0);
+                }
+            }
+        }
+    }
+}
+
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 struct WireCheckerContext {
